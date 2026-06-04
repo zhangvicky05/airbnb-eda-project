@@ -1,0 +1,300 @@
+---
+title: "Are Los Angeles Airbnb Listings Casual or Commercial?"
+author:
+  - name: "Weiyu Zhang"
+    affiliation: "UCLA"
+date: "June 3, 2026"
+abstract: "This report uses Los Angeles Airbnb listings from Inside Airbnb to explore whether listings look more like casual home sharing or commercial short-term rentals."
+output:
+  rticles::arxiv_article:
+    keep_tex: true
+header-includes:
+  - \usepackage{float}
+---
+
+\begin{center}
+\textbf{Weiyu Zhang} \\[0.2em]
+UCLA
+\end{center}
+
+# Introduction
+
+The main research question is: **Are Los Angeles Airbnb listings mainly casual home sharing, or do they look more like commercial short-term rentals?**
+To answer the question, I analyze room type, neighborhood concentration, yearly availability, minimum nights, review activity, and host listing counts.
+
+Not all Airbnb listings are used in the same way. Some listings may be occasional rentals, such as a private room or a home available only certain times of the year. Other listings look more commercial, such as entire homes that are available for many days of the year or hosts with multiple listings. The goal is to describe patterns in the dataset.
+
+```{r setup, include=FALSE}
+# Load packages
+library(tidyverse)
+library(knitr)
+
+# Hide code and messages in the final PDF
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  fig.width = 6,
+  fig.height = 3.8,
+  fig.pos = "H"
+)
+
+# Pastel colors codes
+pastel_colors <- c("#A7C7E7", "#F7A8B8", "#CDB4DB", "#B8E0D2", "#FFD6A5", "#FDE2A9")
+```
+
+# Data Source
+
+The dataset used is the Los Angeles Airbnb `listings.csv` file from Inside Airbnb.
+
+```{r}
+# Read the Airbnb data
+data_unclean <- read_csv("la_airbnb_listings.csv", show_col_types = FALSE)
+```
+
+```{r}
+# Clean the main variables
+data_clean <- data_unclean %>%
+  mutate(
+    availability_365 = as.numeric(availability_365),
+    minimum_nights = as.numeric(minimum_nights),
+    number_of_reviews = as.numeric(number_of_reviews),
+    reviews_per_month = as.numeric(reviews_per_month),
+    calculated_host_listings_count = as.numeric(calculated_host_listings_count)
+  ) %>%
+  filter(
+    !is.na(room_type),
+    !is.na(neighbourhood),
+    !is.na(availability_365),
+    !is.na(minimum_nights),
+    !is.na(number_of_reviews),
+    !is.na(calculated_host_listings_count)
+  ) %>%
+  mutate(
+    high_availability = if_else(
+      availability_365 >= 180,
+      "Available 180+ days",
+      "Available fewer than 180 days"
+    ),
+    host_type = if_else(
+      calculated_host_listings_count > 1,
+      "Host has multiple listings",
+      "Host has one listing"
+    ),
+   commercial_signal = if_else(
+  room_type == "Entire home/apt" & availability_365 >= 180,
+  "High-availability entire home",
+  "Other listings"
+)
+  )
+```
+
+# Variable Overview
+
+```{r variable-table}
+variable_descriptions <- tribble(
+  ~Variable, ~Description,
+  "id", "Unique ID number for each Airbnb listing",
+  "name", "Name or title of the Airbnb listing",
+  "host_id", "Unique ID number for the host",
+  "host_profile_id", "Host profile ID included in the source dataset",
+  "host_name", "Name of the host",
+  "neighbourhood_group", "Larger neighborhood group, if available",
+  "neighbourhood", "Neighborhood where the listing is located",
+  "latitude", "Latitude coordinate of the listing",
+  "longitude", "Longitude coordinate of the listing",
+  "room_type", "Type of Airbnb space, such as entire home, private room, or shared room",
+  "price", "Nightly listing price, but this column is missing in the recent file used",
+  "minimum_nights", "Minimum number of nights required for a booking",
+  "number_of_reviews", "Total number of reviews for the listing",
+  "last_review", "Date of the most recent review",
+  "reviews_per_month", "Average number of reviews per month",
+  "calculated_host_listings_count", "Number of listings connected to the same host",
+  "availability_365", "Number of days the listing is available in the next 365 days",
+  "number_of_reviews_ltm", "Number of reviews in the last twelve months",
+  "license", "License or registration information"
+)
+
+variable_table <- variable_descriptions %>%
+  mutate(
+    Variable = str_replace_all(Variable, "_", " ")
+  )
+
+kable(
+  variable_table,
+  caption = "Variable descriptions for the Los Angeles Airbnb listings dataset."
+)
+```
+
+Table 1 explains the main variables in the dataset.
+
+# Summary Statistics
+
+```{r}
+summary_table <- tibble(
+  Statistic = c(
+    "Number of listings",
+    "Number of neighborhoods",
+    "Median minimum nights",
+    "Mean minimum nights",
+    "Median number of reviews",
+    "Mean number of reviews",
+    "Median availability",
+    "Mean availability",
+    "Median host listings",
+    "Mean host listings"
+  ),
+  Value = c(
+    nrow(data_clean),
+    n_distinct(data_clean$neighbourhood),
+    median(data_clean$minimum_nights, na.rm = TRUE),
+    mean(data_clean$minimum_nights, na.rm = TRUE),
+    median(data_clean$number_of_reviews, na.rm = TRUE),
+    mean(data_clean$number_of_reviews, na.rm = TRUE),
+    median(data_clean$availability_365, na.rm = TRUE),
+    mean(data_clean$availability_365, na.rm = TRUE),
+    median(data_clean$calculated_host_listings_count, na.rm = TRUE),
+    mean(data_clean$calculated_host_listings_count, na.rm = TRUE)
+  )
+)
+
+kable(
+  summary_table,
+  digits = 2,
+  caption = "Summary statistics for cleaned Los Angeles Airbnb listings."
+)
+```
+
+Table 2 gives a quick overview of the cleaned dataset. The dataset includes 45,585 listings across 266 neighborhoods, so it is large enough to show significant patterns. The median minimum stay is 30 nights, which suggests that many listings are not just for very short weekend trips. The median availability is also high, at 254 days, meaning many listings are available for a great part of the year.
+
+# Room Type Distribution
+
+```{r}
+# Count listings by room type
+ggplot(data_clean, aes(x = room_type, fill = room_type)) +
+  geom_bar(color = "white") +
+  scale_fill_manual(values = pastel_colors) +
+  labs(
+    title = "Number of Airbnb Listings by Room Type",
+    x = "Room type",
+    y = "Number of listings",
+    fill = "Room type"
+  ) +
+  theme_minimal()
+```
+
+Figure 1 shows how Airbnb listings are divided by room type. Entire homes or apartments make up the largest group of listings, with over 30,000 listings. While private rooms are the second largest group. This shows that many Los Angeles Airbnb listings may not simply be extra rooms in someone’s home.
+
+# Availability by Room Type
+
+```{r}
+# Compare availability across room types
+ggplot(data_clean, aes(x = room_type, y = availability_365, fill = room_type)) +
+  geom_boxplot(color = "gray40", outlier.alpha = 0.15) +
+  scale_fill_manual(values = pastel_colors) +
+  labs(
+    title = "Yearly Availability by Room Type",
+    x = "Room type",
+    y = "Days available in the next 365 days",
+    fill = "Room type"
+  ) +
+  theme_minimal()
+```
+
+Figure 2 compares yearly availability across room types. The boxplots show that many listings are available for a large number of days in the year, especially hotel rooms and shared rooms. Entire homes and private rooms have more variation, which means some are only available part of the year while others are available almost year round.
+
+# Top Neighborhoods by Listing Count
+
+```{r top-neighborhoods}
+# Find the top 10 neighborhoods with the most listings
+top_neighborhoods <- data_clean %>%
+  count(neighbourhood, sort = TRUE) %>%
+  slice_max(n, n = 10) %>%
+  arrange(n)
+
+ggplot(top_neighborhoods, aes(x = reorder(neighbourhood, n), y = n)) +
+  geom_col(fill = "#A7C7E7", color = "white") +
+  coord_flip() +
+  labs(
+    title = "Top 10 Neighborhoods by Number of Airbnb Listings",
+    x = "Neighborhood",
+    y = "Number of listings"
+  ) +
+  theme_minimal()
+```
+
+Figure 3 shows that Airbnb listings are not evenly spread across Los Angeles. Long Beach, Hollywood, Venice, Santa Monica, and West Hollywood are among the neighborhoods with the most listings. This shows that Airbnb activity is concentrated in specific areas rather than evenly distributed across the city.
+
+\newpage
+# Host Listing Counts
+
+```{r host-listing-counts}
+# Limit the graph so very large host counts do not make it hard to read
+host_counts_limited <- data_clean %>%
+  filter(calculated_host_listings_count <= 20)
+
+ggplot(host_counts_limited, aes(x = calculated_host_listings_count)) +
+  geom_histogram(binwidth = 1, fill = "#F7A8B8", color = "white") +
+  labs(
+    title = "How Many Listings Do Hosts Have?",
+    x = "Number of listings connected to the host",
+    y = "Number of Airbnb listings"
+  ) +
+  theme_minimal()
+```
+
+Figure 4 shows that many listings are connected to hosts with only a small number of listings, but there are also many listings connected to hosts with multiple listings. This matters because hosts with several listings may look more like professional or commercial hosts than casual hosts renting out one space.
+
+# Commercial Style Signal
+
+```{r commercial-signal}
+signal_table <- data_clean %>%
+  count(commercial_signal)
+
+ggplot(signal_table, aes(x = reorder(commercial_signal, n), y = n, fill = commercial_signal)) +
+  geom_col(color = "white") +
+  scale_fill_manual(values = c("#CDB4DB", "#B8E0D2")) +
+  scale_y_continuous(labels = scales::comma) +
+  coord_flip() +
+  labs(
+    title = "A Simple Signal of Commercial-Style Listings",
+    x = "Listing category",
+    y = "Number of listings",
+    fill = "Listing category"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none"
+  )
+```
+
+Figure 5 compares high availability entire homes with all other listings. There are more than 20,000 listings that are entire homes or apartments and available at least 180 days per year. This does not prove that these listings are commercial, but it gives a sign that many listings may look less like occasional home sharing.
+
+# Reviews and Availability
+
+```{r}
+# Compare review activity and yearly availability
+ggplot(data_clean, aes(x = number_of_reviews, y = availability_365)) +
+  geom_point(alpha = 0.25, color = "#CDB4DB") +
+  labs(
+    title = "Reviews and Yearly Availability",
+    x = "Number of reviews",
+    y = "Days available in the next 365 days"
+  ) +
+  theme_minimal()
+```
+
+Figure 6 compares the number of reviews with yearly availability. Most listings have lower review counts, but a few listings have very high numbers of reviews. There is not a clear pattern where more reviews always means more availability, but the graph still shows that listing activity varies a lot across the dataset.
+
+# Conclusion
+
+This exploratory data analysis found several patterns in Los Angeles Airbnb listings. First, room type is an important part of the dataset because listings are divided into categories including entire homes, private rooms, and shared spaces. Second, availability differs across listings, and listings available for most of the year look less like occasional home sharing. Third, listings are not evenly spread across Los Angeles neighborhoods because some neighborhoods have much higher listing counts than others. Also, hosts with multiple listings appear more commercial than hosts with only one listing.
+
+Overall, the data shows that Los Angeles Airbnb listings are not all the same. Some listings look like casual home sharing, while others have patterns that look more like commercial short-term rentals.
+
+# References
+
+Inside Airbnb. “Get the Data: Los Angeles, California, United States.” Inside Airbnb. Dataset file used: `listings.csv`.
+
+Inside Airbnb. “Data Dictionary.” Inside Airbnb.
